@@ -13,7 +13,7 @@ variables:
   # CONFIGURATION VARIABLES: Customize these to match your Azure environment.
   # ---------------------------------------------------------------------------
   # The name of the service connection created in Azure DevOps Project Settings
-  azureServiceConnection: 'AzureServiceConnection'
+  azureServiceConnection: 'azure-app-service'
   
   # Resource details (These can be dynamically outputted by Terraform)
   webAppName: 'pratice-web-as'
@@ -53,7 +53,7 @@ stages:
         replaceExistingArchive: true
 
     # Publish the zip file as a build artifact
-    - task: PublishBuildArtifact@1
+    - task: PublishBuildArtifacts@1
       displayName: 'Publish Artifact'
       inputs:
         PathtoPublish: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
