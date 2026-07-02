@@ -39,7 +39,7 @@ stages:
     # Clean and install project dependencies
     - script: |
         cd $(workingDirectory)
-        npm ci
+        npm install
       displayName: 'Install npm dependencies'
 
     # Package the Node.js application (including dependencies) for App Service
