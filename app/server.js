@@ -11,17 +11,56 @@ app.use(express.urlencoded({ extended: true }));
 // Database configuration
 // Prioritize DB_CONNECTION_STRING, fallback to individual env vars
 const connectionString = process.env.DB_CONNECTION_STRING;
-const config = connectionString ? connectionString : {
-    server: process.env.DB_SERVER || 'localhost',
-    database: process.env.DB_DATABASE || 'UserDB',
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    port: 1433,
-    options: {
-        encrypt: true, // Use encryption for Azure SQL
-        trustServerCertificate: false // Change to true for local dev if self-signed cert is used
+let config;
+
+if (connectionString) {
+    console.log('Using DB_CONNECTION_STRING environment variable.');
+    if (connectionString.startsWith('@Microsoft.KeyVault')) {
+        console.warn('WARNING: Key Vault Reference is not resolved by Azure App Service. Raw value:', connectionString);
     }
-};
+    
+    // Parse ADO.NET connection string (e.g., Server=tcp:...,1433;Database=...;User ID=...;Password=...)
+    const params = {};
+    connectionString.split(';').forEach(part => {
+        const index = part.indexOf('=');
+        if (index !== -1) {
+            const key = part.substring(0, index).trim().toLowerCase();
+            const val = part.substring(index + 1).trim();
+            params[key] = val;
+        }
+    });
+
+    const serverHost = params['server'] || params['data source'] || '';
+    // Strip "tcp:" prefix and port number (e.g., ",1433")
+    const cleanServer = serverHost.replace(/^tcp:/i, '').split(',')[0];
+
+    config = {
+        server: cleanServer || undefined,
+        database: params['database'] || params['initial catalog'],
+        user: params['user id'] || params['uid'],
+        password: params['password'] || params['pwd'],
+        port: 1433,
+        options: {
+            encrypt: true,
+            trustServerCertificate: false
+        }
+    };
+    
+    console.log('Database configuration parsed successfully. Host:', config.server);
+} else {
+    console.log('DB_CONNECTION_STRING is not set. Falling back to individual env variables.');
+    config = {
+        server: process.env.DB_SERVER || 'localhost',
+        database: process.env.DB_DATABASE || 'UserDB',
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        port: 1433,
+        options: {
+            encrypt: true, // Use encryption for Azure SQL
+            trustServerCertificate: false // Change to true for local dev if self-signed cert is used
+        }
+    };
+}
 
 let poolPromise;
 
