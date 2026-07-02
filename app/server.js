@@ -130,7 +130,15 @@ app.get('/health', async (req, res) => {
         await pool.request().query('SELECT 1');
         res.json({ status: 'healthy', database: 'connected' });
     } catch (err) {
-        res.status(500).json({ status: 'unhealthy', database: err.message });
+        let debugInfo = `Error: ${err.message}. `;
+        if (!process.env.DB_CONNECTION_STRING) {
+            debugInfo += 'DB_CONNECTION_STRING is NOT set in environment variables.';
+        } else if (process.env.DB_CONNECTION_STRING.startsWith('@Microsoft.KeyVault')) {
+            debugInfo += 'DB_CONNECTION_STRING is set but contains an unresolved Key Vault Reference: ' + process.env.DB_CONNECTION_STRING;
+        } else {
+            debugInfo += 'DB_CONNECTION_STRING is set (length: ' + process.env.DB_CONNECTION_STRING.length + ').';
+        }
+        res.status(500).json({ status: 'unhealthy', database: debugInfo });
     }
 });
 

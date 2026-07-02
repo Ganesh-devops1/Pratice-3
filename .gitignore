@@ -3,3 +3,7 @@
 *.tfstate
 *.tfstate.*
 crash.log
+
+# Node
+**/node_modules/
+**/.env
