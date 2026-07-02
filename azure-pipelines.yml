@@ -1,0 +1,121 @@
+# Azure DevOps CI/CD Pipeline
+# Automatically triggers on changes to the main branch
+trigger:
+  branches:
+    include:
+      - master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # ---------------------------------------------------------------------------
+  # CONFIGURATION VARIABLES: Customize these to match your Azure environment.
+  # ---------------------------------------------------------------------------
+  # The name of the service connection created in Azure DevOps Project Settings
+  azureServiceConnection: 'AzureServiceConnection'
+  
+  # Resource details (These can be dynamically outputted by Terraform)
+  webAppName: 'pratice-web-as'
+  keyVaultName: 'sqladmin1'
+  resourceGroupName: 'pratice-web-deploy' # Update this if your resource group is named differently
+  
+  # Paths
+  workingDirectory: 'app'
+
+stages:
+- stage: Build
+  displayName: 'Build Stage'
+  jobs:
+  - job: BuildJob
+    displayName: 'Install Dependencies & Package'
+    steps:
+    # Set Node.js Version matching the Azure Web App Runtime
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '20.x'
+      displayName: 'Install Node.js'
+
+    # Clean and install project dependencies
+    - script: |
+        cd $(workingDirectory)
+        npm ci
+      displayName: 'Install npm dependencies'
+
+    # Package the Node.js application (including dependencies) for App Service
+    - task: ArchiveFiles@2
+      displayName: 'Archive files'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/$(workingDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
+
+    # Publish the zip file as a build artifact
+    - task: PublishBuildArtifact@1
+      displayName: 'Publish Artifact'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        ArtifactName: 'drop'
+
+- stage: Deploy
+  displayName: 'Deploy Stage'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: DeployJob
+    displayName: 'Deploy Web App & Configure Secrets'
+    environment: 'Development'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          # 1. Download the Build Artifacts
+          - download: current
+            artifact: drop
+
+          # 2. Retrieve Secrets from Azure Key Vault
+          # This task pulls secrets from Key Vault and maps them to pipeline variables.
+          # For example, a Key Vault secret named 'DatabaseConnectionString' becomes '$(DatabaseConnectionString)'
+          - task: AzureKeyVault@2
+            displayName: 'Retrieve Secrets from Azure Key Vault'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              KeyVaultName: '$(keyVaultName)'
+              SecretsFilter: 'DatabaseConnectionString' # Filter for specific secrets (use '*' for all)
+              RunAsPreJob: false
+
+          # 3. Apply retrieved secrets to App Service settings (Secure Deployment)
+          # Note: If using Terraform Key Vault References (like @Microsoft.KeyVault(SecretUri=...)),
+          # this step is optional since the App Service will retrieve it at runtime.
+          # However, doing it here demonstrates how the pipeline can inject Key Vault secrets directly.
+          - task: AzureAppServiceSettings@1
+            displayName: 'Configure App Service Environment Variables'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appName: '$(webAppName)'
+              resourceGroupName: '$(resourceGroupName)'
+              appSettings: |
+                [
+                  {
+                    "name": "DB_CONNECTION_STRING",
+                    "value": "$(DatabaseConnectionString)",
+                    "slotSetting": false
+                  },
+                  {
+                    "name": "NODE_ENV",
+                    "value": "production",
+                    "slotSetting": false
+                  }
+                ]
+
+          # 4. Deploy the Zip Package to Azure App Service
+          - task: AzureWebApp@1
+            displayName: 'Deploy Azure Web App'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              appType: 'webAppLinux'
+              appName: '$(webAppName)'
+              package: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
+              startUpCommand: 'npm start'
